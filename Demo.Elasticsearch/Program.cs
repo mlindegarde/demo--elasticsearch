@@ -31,6 +31,13 @@ namespace Demo.Elasticsearch
                     .DefaultMappingFor<EpFile>(m => m.IndexName("epfile"));
 
             _esClient = new ElasticClient(settings);
+
+            // You can explicitly create an index using the CreateAsync method.
+            // For more control over the index in ES you will want to do this.
+            // You can read more about it here:
+            //    https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/mapping.html
+
+            //_esClient.Indices.CreateAsync()
         }
 
         private void LoadDataFromSql()
@@ -69,7 +76,9 @@ namespace Demo.Elasticsearch
 
             // MatchPhrase will attempt to find an exact string match.  If you just
             // just Match it will try to match using the field analyzer that was used
-            // when the field was created.
+            // when the field was created.  You can read more about searching here:
+            //    https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/search.html
+
             ISearchResponse<EpFile> searchResponse =
                 await _esClient.SearchAsync<EpFile>(
                     search =>
