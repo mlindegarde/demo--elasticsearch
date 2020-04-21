@@ -1,0 +1,40 @@
+version: '2.2'
+services:
+  demo--es--es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.6.2
+    container_name: demo--es--es01
+    environment:
+      - node.name=es01
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - demo--es--data01:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+    networks:
+      - demo--es--elastic
+
+  demo--es--kib01:
+    image: docker.elastic.co/kibana/kibana:7.6.2
+    container_name: demo--es--kib01
+    ports:
+      - 5601:5601
+    environment:
+      ELASTICSEARCH_URL: http://demo--es--es01:9200
+      ELASTICSEARCH_HOSTS: http://demo--es--es01:9200
+    networks:
+      - demo--es--elastic
+
+volumes:
+  demo--es--data01:
+    driver: local
+
+networks:
+  demo--es--elastic:
+    driver: bridge
+
