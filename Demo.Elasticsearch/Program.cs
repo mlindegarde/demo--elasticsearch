@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using AutoFixture;
 using Demo.Elasticsearch.SearchModel;
+using Microsoft.Extensions.Configuration;
 using Nest;
 using Serilog;
 
@@ -25,10 +26,23 @@ namespace Demo.Elasticsearch
                     .WriteTo.Console()
                     .CreateLogger();
 
-            // Setup the connection providing a mapping for the EpFile Object
+            // You load this in your startup.cs (either in the constructor or before you configure your
+            // services in ConfigureServices
+            AppConfig appConfig =
+                new ConfigurationBuilder()
+                    .AddJsonFile("appsettings.json")
+                    .Build()
+                    .Get<AppConfig>();
+
+            // Once loaded inject the ElasticsearchConfig into the IoC container
+            //services.AddSingleton(appConfig.Elasticsearch)
+
+            // Now that you've added the ElasticsearchConfig to your IoC container it will be populated
+            // via the constructor (e.g. your repository constructor)
+
             ConnectionSettings settings =
-                new ConnectionSettings(new Uri("http://localhost:9200"))
-                    .DefaultMappingFor<EpFile>(m => m.IndexName("epfile"));
+                new ConnectionSettings(appConfig.Elasticsearch.Uri)
+                    .DefaultMappingFor<EpFile>(m => m.IndexName(appConfig.Elasticsearch.EpFileIndex));
 
             _esClient = new ElasticClient(settings);
 
