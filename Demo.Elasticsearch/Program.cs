@@ -14,11 +14,17 @@ namespace Demo.Elasticsearch
     class Program
     {
         #region Member Variables
+        private AppConfig _appConfig;
+
         private ElasticClient _esClient;
         private List<EpFile> _epFiles;
+        private List<Book> _books;
+
+        private int _titleIndex = 0;
+        private int _descIndex = 0;
         #endregion
 
-        private void InitClient()
+        private async Task InitClientAsync()
         {
             // Setup Serilog to log to the console
             Log.Logger =
@@ -28,7 +34,7 @@ namespace Demo.Elasticsearch
 
             // You load this in your startup.cs (either in the constructor or before you configure your
             // services in ConfigureServices
-            AppConfig appConfig =
+            _appConfig =
                 new ConfigurationBuilder()
                     .AddJsonFile("appsettings.json")
                     .Build()
@@ -41,20 +47,21 @@ namespace Demo.Elasticsearch
             // via the constructor (e.g. your repository constructor)
 
             ConnectionSettings settings =
-                new ConnectionSettings(appConfig.Elasticsearch.Uri)
-                    .DefaultMappingFor<EpFile>(m => m.IndexName(appConfig.Elasticsearch.EpFileIndex));
+                new ConnectionSettings(_appConfig.Elasticsearch.Uri)
+                    .DefaultMappingFor<EpFile>(m => m.IndexName(_appConfig.Elasticsearch.EpFileIndex));
 
             _esClient = new ElasticClient(settings);
 
-            // You can explicitly create an index using the CreateAsync method.
-            // For more control over the index in ES you will want to do this.
-            // You can read more about it here:
-            //    https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/mapping.html
+            await _esClient.Indices.DeleteAsync(_appConfig.Elasticsearch.BookIndex);
 
-            //_esClient.Indices.CreateAsync()
+            CreateIndexResponse response = await _esClient.Indices.CreateAsync(
+                _appConfig.Elasticsearch.BookIndex,
+                c => c.Map<Book>(m => m.AutoMap()));
+
+            Console.WriteLine(response.Index);
         }
 
-        private void LoadDataFromSql()
+        private void GenerateEpFileData()
         {
             /*
              * I'm just faking data for this demo.  You would want to load all relevant data
@@ -62,7 +69,7 @@ namespace Demo.Elasticsearch
              * database (SQL Server) should be normalized to some degree.  Your search database
              * should be denormalized as appropriate.
              */
-            _epFiles = 
+            _epFiles =
                 new Fixture()
                     .Build<EpFile>()
                     .With(f => f.CreatedOn, DateTime.Now)
@@ -71,19 +78,92 @@ namespace Demo.Elasticsearch
                     .ToList();
         }
 
-        private async Task InsertDocumentsAsync()
+        private async Task InsertEpFileDocumentsAsync()
         {
             foreach (EpFile file in _epFiles)
             {
-                IndexResponse response = await _esClient.IndexDocumentAsync(file);
+                IndexResponse response = await _esClient.IndexAsync(file, i => i.Index(_appConfig.Elasticsearch.EpFileIndex));
 
                 Log.Information(
-                    "Inserted {Title}, has Id {Id}",
+                    "Inserted file {Title}, has Id {Id}",
                     file.Title,
                     response.Id);
             }
         }
 
+        private void GenerateBookData()
+        {
+            _books = 
+                new Fixture()
+                    .Build<Book>()
+                    .With(b => b.Title, () => $"Title - {_titleIndex++}")
+                    .With(b => b.Description, () => $"Description - {_descIndex++}")
+                    .CreateMany(10)
+                    .ToList();
+        }
+
+        private async Task InsertBookDocumentsAsync()
+        {
+            foreach (Book book in _books)
+            {
+                IndexResponse response = await _esClient.IndexAsync(book, i => i.Index(_appConfig.Elasticsearch.BookIndex));
+
+                Log.Information(
+                    "Inserted book {Title}, has Id {Id}",
+                    book.Title,
+                    response.Id);
+            }
+        }
+
+        #region Book Update Methods
+        private async Task<bool> UpdateByQueryAsync()
+        {
+            Guid bookId = _books.First().Id;
+
+            UpdateByQueryResponse response = 
+                await _esClient.UpdateByQueryAsync<Book>(
+                    desc =>
+                        desc.Index(_appConfig.Elasticsearch.BookIndex)
+                            .Query(
+                                query =>
+                                    query.Term(b => b.Id, bookId.ToString()))
+                            .Script(
+                                script =>
+                                    script
+                                        .Source(
+                                            "ctx._source.title = params.title;" +
+                                            "ctx._source.description = params.description;")
+                                        .Params(
+                                            new Dictionary<string, object>()
+                                            {
+                                                {"title", "new title"},
+                                                {"description", "new desc"}
+                                            })));
+
+            return response.Updated > 0;
+        }
+
+        private async Task<bool> UpdateAsync()
+        {
+            Book book = _books.Last();
+
+            UpdateResponse<Book> response = await _esClient.UpdateAsync<Book, Object>(
+                book.Id,
+                    desc =>
+                        desc
+                            .Index(_appConfig.Elasticsearch.BookIndex)
+                            .Doc(
+                                new
+                                {
+                                    Title = "Updated from update",
+                                    Description = "also update from update"
+                                }));
+
+            return response.Result == Result.Updated;
+        }
+        #endregion
+
+        #region EpSearch Methods
         private async Task<bool> SearchForExactTitleMatchAsync()
         {
             string title = _epFiles.First().Title;
@@ -193,6 +273,7 @@ namespace Demo.Elasticsearch
 
             return matches.Any();
         }
+        #endregion
 
         private void End()
         {
@@ -205,19 +286,27 @@ namespace Demo.Elasticsearch
         {
             Program program = new Program();
 
-            program.InitClient();
-            program.LoadDataFromSql();
-            
-            await program.InsertDocumentsAsync();
+            await program.InitClientAsync();
+
+            program.GenerateEpFileData();
+            program.GenerateBookData();
+
+            await Task.WhenAll(
+                program.InsertEpFileDocumentsAsync(),
+                program.InsertBookDocumentsAsync());
 
             // Elasticearch by default uses eventual consistency.  This means that the write
             // operation you just did may not have completed.  For the sake of this demo I
             // am running the method until I get teh matches I expect.  You should not do this
             // in real life.  It's bad.  You can also force ES to be real-time.  I don't recommend
             // taking that approach.
+
             await RunUntilSuccess(program.SearchForExactTitleMatchAsync);
             await RunUntilSuccess(program.SearchForAnyMatchAsync);
             await RunUntilSuccess(program.BoolOrSearchAsync);
+
+            await RunUntilSuccess(program.UpdateByQueryAsync);
+            await RunUntilSuccess(program.UpdateAsync);
 
             program.End();
         }

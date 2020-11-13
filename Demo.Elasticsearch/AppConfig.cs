@@ -8,6 +8,7 @@ namespace Demo.Elasticsearch
         {
             public Uri Uri { get; set; }
             public string EpFileIndex { get; set; }
+            public string BookIndex { get; set; }
             public string Username { get; set; }
             public string Password { get; set; }
         }
