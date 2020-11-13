@@ -61,7 +61,37 @@ namespace Demo.Elasticsearch
             Console.WriteLine(response.Index);
         }
 
-        private void GenerateData()
+        private void GenerateEpFileData()
+        {
+            /*
+             * I'm just faking data for this demo.  You would want to load all relevant data
+             * from SQL and de-normalize it to build the search document model.  You operational
+             * database (SQL Server) should be normalized to some degree.  Your search database
+             * should be denormalized as appropriate.
+             */
+            _epFiles =
+                new Fixture()
+                    .Build<EpFile>()
+                    .With(f => f.CreatedOn, DateTime.Now)
+                    .With(f => f.FileText, $"The cat runs and jumps all morning long {DateTime.Now}")
+                    .CreateMany(10)
+                    .ToList();
+        }
+
+        private async Task InsertEpFileDocumentsAsync()
+        {
+            foreach (EpFile file in _epFiles)
+            {
+                IndexResponse response = await _esClient.IndexAsync(file, i => i.Index(_appConfig.Elasticsearch.EpFileIndex));
+
+                Log.Information(
+                    "Inserted file {Title}, has Id {Id}",
+                    file.Title,
+                    response.Id);
+            }
+        }
+
+        private void GenerateBookData()
         {
             _books = 
                 new Fixture()
@@ -72,14 +102,14 @@ namespace Demo.Elasticsearch
                     .ToList();
         }
 
-        private async Task InsertDocumentsAsync()
+        private async Task InsertBookDocumentsAsync()
         {
             foreach (Book book in _books)
             {
                 IndexResponse response = await _esClient.IndexAsync(book, i => i.Index(_appConfig.Elasticsearch.BookIndex));
 
                 Log.Information(
-                    "Inserted {Title}, has Id {Id}",
+                    "Inserted book {Title}, has Id {Id}",
                     book.Title,
                     response.Id);
             }
@@ -257,20 +287,23 @@ namespace Demo.Elasticsearch
             Program program = new Program();
 
             await program.InitClientAsync();
-            program.GenerateData();
-            
-            await program.InsertDocumentsAsync();
 
-            /*
+            program.GenerateEpFileData();
+            program.GenerateBookData();
+
+            await Task.WhenAll(
+                program.InsertEpFileDocumentsAsync(),
+                program.InsertBookDocumentsAsync());
+
             // Elasticearch by default uses eventual consistency.  This means that the write
             // operation you just did may not have completed.  For the sake of this demo I
             // am running the method until I get teh matches I expect.  You should not do this
             // in real life.  It's bad.  You can also force ES to be real-time.  I don't recommend
             // taking that approach.
+
             await RunUntilSuccess(program.SearchForExactTitleMatchAsync);
             await RunUntilSuccess(program.SearchForAnyMatchAsync);
             await RunUntilSuccess(program.BoolOrSearchAsync);
-            */
 
             await RunUntilSuccess(program.UpdateByQueryAsync);
             await RunUntilSuccess(program.UpdateAsync);
