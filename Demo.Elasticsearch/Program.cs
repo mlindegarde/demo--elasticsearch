@@ -110,7 +110,24 @@ namespace Demo.Elasticsearch
                                                 {"description", "new desc"}
                                             })));
 
-            return response.IsValid;
+            return response.Updated > 0;
+        }
+
+        private async Task<bool> UpdateAsync()
+        {
+            Book book = _books.Last();
+
+            book.Title = "Updated from update";
+            book.Description = "also updated from update";
+
+            UpdateResponse<Book> response = await _esClient.UpdateAsync<Book>(
+                book.Id,
+                    desc =>
+                        desc
+                            .Index(_appConfig.Elasticsearch.BookIndex)
+                            .Doc(book));
+
+            return response.Result == Result.Updated;
         }
         #endregion
 
@@ -253,13 +270,8 @@ namespace Demo.Elasticsearch
             await RunUntilSuccess(program.BoolOrSearchAsync);
             */
 
-            bool success = false;
-
-            while (!success)
-            {
-                success = await program.UpdateByQueryAsync();
-            }
-            
+            await RunUntilSuccess(program.UpdateByQueryAsync);
+            await RunUntilSuccess(program.UpdateAsync);
 
             program.End();
         }
