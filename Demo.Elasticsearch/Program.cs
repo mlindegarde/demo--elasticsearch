@@ -117,15 +117,17 @@ namespace Demo.Elasticsearch
         {
             Book book = _books.Last();
 
-            book.Title = "Updated from update";
-            book.Description = "also updated from update";
-
-            UpdateResponse<Book> response = await _esClient.UpdateAsync<Book>(
+            UpdateResponse<Book> response = await _esClient.UpdateAsync<Book, Object>(
                 book.Id,
                     desc =>
                         desc
                             .Index(_appConfig.Elasticsearch.BookIndex)
-                            .Doc(book));
+                            .Doc(
+                                new
+                                {
+                                    Title = "Updated from update",
+                                    Description = "also update from update"
+                                }));
 
             return response.Result == Result.Updated;
         }
